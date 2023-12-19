@@ -39,7 +39,7 @@ where
     Ok(res.map(BodyExt::boxed))
 }
 
-pub async fn serve<A: ToSocketAddrs + Debug>(addr: A) {
+pub fn serve<A: ToSocketAddrs + Debug>(addr: A) {
     tokio::runtime::Builder::new_current_thread()
         .enable_io()
         .build()
