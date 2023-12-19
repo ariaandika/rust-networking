@@ -28,6 +28,15 @@ use for managing handlers, getting familier with its structs and traits
 - hyper-util, creating tokio io
 - tokio, async runtime
 - tokio, tcp module
-- 
+
+## Problem!
+
+`hyper::Incoming` implement boxbody as `BoxBody<Bytes, hyper::Error>`
+
+`StreamBody` implement boxbody as `BoxBody<Bytes, std::io::Error>`
+
+so the returned response have different type
+
+still doesnt know how to map error inside `BoxBody`
 
 

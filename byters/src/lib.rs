@@ -1,42 +1,24 @@
+pub mod handler;
+pub mod traits;
 use std::fmt::Debug;
 
-use bytes::Bytes;
-use http::{Request, Response, StatusCode};
-use http_body_util::BodyExt;
-use http_body_util::combinators::BoxBody;
-
-use hyper::client::conn::http1::SendRequest;
-use hyper::{self, body::Incoming};
-use hyper_util;
-
 use hyper_util::rt::TokioIo;
-use tokio::net::{TcpStream, ToSocketAddrs, TcpListener};
+use tokio::net::{ToSocketAddrs, TcpListener};
+use traits::{StatusErr, HttpRequest, HttpResponse};
 
-pub type Respon = Response<BoxBody<Bytes, hyper::Error>>;
-
-pub async fn handle<A>(req: Request<Incoming>, addr: A) -> Result<Respon,Response<BoxBody<Bytes, hyper::Error>>>
-where
-    A: ToSocketAddrs
-{
-    let stream = TcpStream::connect(addr)
-        .await
+async fn resolve(req: HttpRequest) -> HttpResponse {
+    let host = req
+        .headers()
+        .get("host")
+        .ok_or_else(||StatusErr::bad_request("No host header"))?
+        .to_str()
         .map_err(StatusErr::internal_err)?;
 
-    let io = hyper_util::rt::TokioIo::new(stream);
-
-    let (mut sender, conn): (SendRequest<Incoming>, _) = hyper::client::conn::http1::handshake(io)
-                             .await
-                             .map_err(StatusErr::internal_err)?;
-
-    tokio::spawn(async {
-        if let Err(e) = conn.await {
-            eprintln!("conn error: {}", e);
-        }
-    });
-
-    let res = sender.send_request(req).await.map_err(StatusErr::internal_err)?;
-
-    Ok(res.map(BodyExt::boxed))
+    match host {
+        "localhost:3000" => handler::serve::handle(req).await,
+        "localhost:3000" => handler::proxy::handle(req, "127.0.0.1:8000").await,
+        _ => todo!()
+    }
 }
 
 pub fn serve<A: ToSocketAddrs + Debug>(addr: A) {
@@ -63,28 +45,18 @@ pub fn serve<A: ToSocketAddrs + Debug>(addr: A) {
                     if let Err(er) = hyper::server::conn::http1::Builder::new()
                         .serve_connection(io, hyper::service::service_fn(|req|{
                             async move {
-                                match handle(req, "127.0.0.1:8000").await {
+                                match resolve(req).await {
                                     Ok(res) => Ok::<_,hyper::Error>(res),
                                     Err(err) => Ok(err),
                                 }
                             }
                         })).await
                     {
-                        eprintln!("Cannot serve request: {}", er);
+                        eprintln!("Failed to serve request: {}", er);
                     }
                 });
             }
     });
 }
 
-struct StatusErr;
-impl StatusErr {
-    fn internal_err<T: Debug>(er: T) -> Response<BoxBody<Bytes, hyper::Error>> {
-        eprintln!("Internal server error: {:?}",er);
-        Response::builder()
-            .status(StatusCode::INTERNAL_SERVER_ERROR)
-            .body(BoxBody::default())
-            .expect("Idk the fk why this can error")
-    }
-}
 
