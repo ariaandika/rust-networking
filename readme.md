@@ -2,9 +2,7 @@
 
 collection of rust library for networking
 
-## Byters
-
-lib:
+libs:
 - bytes
 - http
 - http-body
@@ -16,7 +14,7 @@ lib:
 - tokio-rustls
 - serde, serde_json
 
-packages
+packages:
 
 ## byters
 
