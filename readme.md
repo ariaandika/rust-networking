@@ -18,3 +18,5 @@ lib:
 
 packages
 
+- byters
+use for managing handlers, getting familier with its structs and traits
