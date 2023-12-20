@@ -1,0 +1,9 @@
+{
+  "domains": {
+    "deuzo.me": {
+      "proxy": {
+        "target": "localhost:8000"
+      }
+    }
+  }
+}
