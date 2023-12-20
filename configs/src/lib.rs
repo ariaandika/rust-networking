@@ -8,7 +8,7 @@ pub mod tls;
 #[derive(Debug,Deserialize)]
 pub struct Config {
     pub domains: HashMap<String,proxy::DomainConfig>,
-    pub tls: Option<TlsConfig>
+    pub tls: Option<TlsConfig>,
 }
 
 impl Config {

@@ -9,20 +9,22 @@ use tokio::{net::{TcpListener, ToSocketAddrs, TcpStream}, signal::unix::SignalKi
 
 #[tokio::main]
 async fn main() -> Result<(), std::io::Error> {
-    let config = configs::Config::setup()?;
-    let mut domains = HashMap::new();
+    let config = AppState::setup()?;
+    // let config = configs::Config::setup()?;
+    // let mut domains = HashMap::new();
 
-    for (key,domain) in config.domains.iter() {
-        if let Some(d) = &domain.proxy {
-            domains.insert(key.clone(), DomainConfig { target: d.target.clone() });
-        }
-    }
+    // for (key,domain) in config.domains.iter() {
+    //     if let Some(d) = &domain.proxy {
+    //         domains.insert(key.clone(), DomainConfig { target: d.target.clone() });
+    //     }
+    // }
 
     let port = std::env::var("PORT").unwrap_or("3000".into());
-    let tls = config.tls.map(|t|tlser::setup_tls(t.cert, t.key));
-    let addr = if tls.is_none() { "127.0.0.1" } else { "[::]" };
+    // let tls = config.tls.map(|t|tlser::setup_tls(t.cert, t.key));
+    // let addr = if config.tls.is_none() { "127.0.0.1" } else { "[::]" };
+    let addr = "[::]";
 
-    let config = AppState { domains, tls: tls.unwrap() };
+    // let config = AppState { domains, tls: tls.unwrap() };
 
     let server1 = server(format!("{addr}:{port}"), config);
     let server2 = if let Ok(port2) = std::env::var("PORT2") {
@@ -46,6 +48,33 @@ static SERVICE_UNAVAILABLE: &[u8] = b"Service Unavailable";
 struct AppState {
     domains: HashMap<String,DomainConfig>,
     tls: TlsAcceptorType
+}
+
+impl AppState {
+    fn new() -> std::io::Result<Self> {
+        Self::setup()
+    }
+
+    fn setup() -> std::io::Result<Self> {
+        let config = configs::Config::setup()?;
+        let mut domains = HashMap::new();
+
+        for (key,domain) in config.domains.iter() {
+            if let Some(d) = &domain.proxy {
+                domains.insert(key.clone(), DomainConfig { target: d.target.clone() });
+            }
+        }
+
+        let tls = config.tls.map(|t|tlser::setup_tls(t.cert, t.key));
+
+        Ok(Self { domains, tls: tls.unwrap() })
+    }
+
+    fn reload(&mut self) -> std::io::Result<()> {
+        let config = Self::setup()?;
+        *self = config;
+        Ok(())
+    }
 }
 
 #[derive(Clone)]
@@ -206,6 +235,10 @@ fn signal_handler(config: Arc<RwLock<AppState>>) {
         tokio::select! {
             _ = usr1.recv() => {
                 println!("Reloading config...");
+                {
+                    let lock = config.read().unwrap();
+                    lock.reload();
+                }
                 signal_handler(config)
             }
         }
