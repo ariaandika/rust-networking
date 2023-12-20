@@ -9,7 +9,7 @@ use tokio::{net::{TcpListener, ToSocketAddrs, TcpStream}, signal::unix::SignalKi
 
 #[tokio::main]
 async fn main() -> Result<(), std::io::Error> {
-    let config = AppState::setup()?;
+    let config = AppState::new()?;
     // let config = configs::Config::setup()?;
     // let mut domains = HashMap::new();
 
@@ -52,10 +52,6 @@ struct AppState {
 
 impl AppState {
     fn new() -> std::io::Result<Self> {
-        Self::setup()
-    }
-
-    fn setup() -> std::io::Result<Self> {
         let config = configs::Config::setup()?;
         let mut domains = HashMap::new();
 
@@ -71,7 +67,7 @@ impl AppState {
     }
 
     fn reload(&mut self) -> std::io::Result<()> {
-        let config = Self::setup()?;
+        let config = Self::new()?;
         *self = config;
         Ok(())
     }
@@ -236,8 +232,10 @@ fn signal_handler(config: Arc<RwLock<AppState>>) {
             _ = usr1.recv() => {
                 println!("Reloading config...");
                 {
-                    let lock = config.read().unwrap();
-                    lock.reload();
+                    let mut lock = config.write().unwrap();
+                    if let Err(err) = lock.reload() {
+                        eprintln!("Failed to reload config: {}", err);
+                    };
                 }
                 signal_handler(config)
             }
