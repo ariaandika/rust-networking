@@ -4,5 +4,6 @@ members = [
   "byters",
   "low_level",
   "main",
-  "configs"
+  "configs",
+  "server",
 ]
