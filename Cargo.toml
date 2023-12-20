@@ -3,5 +3,6 @@ resolver = "2"
 members = [
   "byters",
   "low_level",
-  "main"
+  "main",
+  "configs"
 ]
