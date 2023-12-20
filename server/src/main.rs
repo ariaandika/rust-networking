@@ -7,8 +7,27 @@ use hyper::{service::service_fn, body::{Incoming, Bytes}, client::conn::http1::S
 use tokio::{net::{TcpListener, ToSocketAddrs, TcpStream}, signal::unix::SignalKind};
 
 #[tokio::main]
-async fn main() {
-    server("127.0.0.1:3000").await.unwrap();
+async fn main() -> Result<(), std::io::Error> {
+    let addr = if std::env::var("TLS").is_ok() { "[::]" } else { "127.0.0.1" };
+    let port1 = std::env::var("PORT").unwrap_or("3000".into());
+
+    let server1 = server(format!("{addr}:{port1}"));
+    let server2 = {
+        match std::env::var("PORT2") {
+            Ok(port2) => Some(server_redirect(format!("{addr}:{port2}"))),
+            Err(_) => None,
+        }
+    };
+
+    let f = tokio::join!(
+        server1,
+        async { if let Some(s) = server2 { s.await } else { Ok(()) } }
+    );
+
+    f.0?;
+    f.1?;
+
+    Ok(())
 }
 
 static SERVICE_UNAVAILABLE: &[u8] = b"Service Unavailable";
@@ -21,8 +40,8 @@ struct AppState {
 impl Default for AppState {
     fn default() -> Self {
         let mut map = HashMap::new();
-        map.insert("localhost:3000".into(), DomainConfig { target: "localhost:8000".into() });
-        map.insert("localhost:4000".into(), DomainConfig { target: "localhost:4000".into() });
+        map.insert("deuzo.me".into(), DomainConfig { target: "localhost:8000".into() });
+        map.insert("api.deuzo.me".into(), DomainConfig { target: "localhost:5000".into() });
         Self {
             domains: map
         }
@@ -64,6 +83,38 @@ async fn server<T: ToSocketAddrs>(addr: T) -> Result<(), std::io::Error> {
         });
     };
     Ok(())
+}
+
+async fn server_redirect<T: ToSocketAddrs>(addr: T) -> Result<(), std::io::Error> {
+    let tcp = TcpListener::bind(addr).await?;
+    loop {
+        let (stream, _) = tokio::select! {
+            _ = tokio::signal::ctrl_c() => break,
+            s = tcp.accept() => s?
+        };
+
+        let io = hyper_util::rt::TokioIo::new(stream);
+        let server = hyper::server::conn::http1::Builder::new()
+                .keep_alive(false)
+                .serve_connection(io, service_fn(redirect)) ;
+
+        tokio::spawn(async move {
+            if let Err(err) = server.await {
+                eprintln!("Failed to serve request: {:?}", err);
+            }
+        });
+    };
+    Ok(())
+}
+
+async fn redirect(_: Request<Incoming>) -> Result<Response<String>, std::io::Error> {
+    let res = Response::builder()
+        .status(StatusCode::FOUND)
+        .header("Location", "deuzo.me")
+        .header("Conection", "close")
+        .body(String::new())
+        .unwrap();
+    Ok(res)
 }
 
 async fn dummy_handle(req: Request<Incoming>, config: Arc<RwLock<AppState>>) -> Result<Response<BoxBody<Bytes, hyper::Error>>, std::io::Error> {
