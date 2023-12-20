@@ -14,7 +14,7 @@ pub struct DomainConfig {
 }
 
 
-#[derive(Debug,Deserialize)]
+#[derive(Debug,Clone,Deserialize)]
 pub struct ProxyConfig {
     pub target: String
 }
