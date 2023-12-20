@@ -4,27 +4,16 @@ use std::{sync::{Arc, RwLock}, fmt::Display, collections::HashMap};
 use http::{Request, Response, StatusCode};
 use http_body_util::{combinators::BoxBody, BodyExt, Full};
 use hyper::{service::service_fn, body::{Incoming, Bytes}, client::conn::http1::SendRequest};
+use hyper_util::rt::{TokioIo, TokioExecutor};
 use tlser::TlsAcceptorType;
 use tokio::{net::{TcpListener, ToSocketAddrs, TcpStream}, signal::unix::SignalKind};
 
 #[tokio::main]
 async fn main() -> Result<(), std::io::Error> {
     let config = AppState::new()?;
-    // let config = configs::Config::setup()?;
-    // let mut domains = HashMap::new();
-
-    // for (key,domain) in config.domains.iter() {
-    //     if let Some(d) = &domain.proxy {
-    //         domains.insert(key.clone(), DomainConfig { target: d.target.clone() });
-    //     }
-    // }
 
     let port = std::env::var("PORT").unwrap_or("3000".into());
-    // let tls = config.tls.map(|t|tlser::setup_tls(t.cert, t.key));
-    // let addr = if config.tls.is_none() { "127.0.0.1" } else { "[::]" };
     let addr = "[::]";
-
-    // let config = AppState { domains, tls: tls.unwrap() };
 
     let server1 = server(format!("{addr}:{port}"), config);
     let server2 = if let Ok(port2) = std::env::var("PORT2") {
@@ -87,28 +76,44 @@ async fn server<T: ToSocketAddrs>(addr: T, og_config: AppState) -> Result<(), st
     signal_handler(config.clone());
 
     loop {
+        let config = Arc::clone(&config);
+        let tls_acceptor = tls_acceptor.clone();
         let (stream, _) = tokio::select! {
             _ = tokio::signal::ctrl_c() => break shutdown(),
             s = tcp.accept() => s?
         };
 
-        let stream = tls_acceptor.clone().accept(stream).await?;
+        tokio::spawn(async move {
+            let stream = tls_acceptor.accept(stream).await.expect("Failed to tls handshake");
 
-        let io = hyper_util::rt::TokioIo::new(stream);
-        let config = Arc::clone(&config);
-        let server = hyper::server::conn::http1::Builder::new()
+            let io = TokioIo::new(stream);
+            let exec = TokioExecutor::new();
+            let server = hyper::server::conn::http2::Builder::new(exec)
                 .serve_connection(io, service_fn(move |req| {
                     let config = Arc::clone(&config);
                     async move {
                         dummy_handle(req, config).await
                     }
-                }))
-                .with_upgrades();
+                }));
 
-        tokio::spawn(async move {
             if let Err(err) = server.await {
                 eprintln!("Failed to serve request: {:?}", err);
             }
+
+            // Ok(())
+            // let io = TokioIo::new(stream);
+            // let server = hyper::server::conn::http1::Builder::new()
+            //         .serve_connection(io, service_fn(move |req| {
+            //             let config = Arc::clone(&config);
+            //             async move {
+            //                 dummy_handle(req, config).await
+            //             }
+            //         }))
+            //         .with_upgrades();
+            //
+            // if let Err(err) = server.await {
+            //     eprintln!("Failed to serve request: {:?}", err);
+            // }
         });
     };
     Ok(())
