@@ -1,12 +1,14 @@
 use std::{collections::HashMap, fs::File, io::{self, BufReader}};
 use serde::Deserialize;
+use tls::TlsConfig;
 
 pub mod proxy;
 pub mod tls;
 
 #[derive(Debug,Deserialize)]
 pub struct Config {
-    pub domains: HashMap<String,proxy::DomainConfig>
+    pub domains: HashMap<String,proxy::DomainConfig>,
+    pub tls: Option<TlsConfig>
 }
 
 impl Config {

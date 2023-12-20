@@ -1,23 +1,33 @@
 
-use std::{sync::{Arc, RwLock}, fmt::{Debug, Display}, collections::HashMap};
+use std::{sync::{Arc, RwLock}, fmt::Display, collections::HashMap};
 
 use http::{Request, Response, StatusCode};
 use http_body_util::{combinators::BoxBody, BodyExt, Full};
 use hyper::{service::service_fn, body::{Incoming, Bytes}, client::conn::http1::SendRequest};
+use tlser::TlsAcceptorType;
 use tokio::{net::{TcpListener, ToSocketAddrs, TcpStream}, signal::unix::SignalKind};
 
 #[tokio::main]
 async fn main() -> Result<(), std::io::Error> {
-    let addr = if std::env::var("TLS").is_ok() { "[::]" } else { "127.0.0.1" };
-    let port1 = std::env::var("PORT").unwrap_or("3000".into());
+    let config = configs::Config::setup()?;
+    let mut domains = HashMap::new();
 
-    let server1 = server(format!("{addr}:{port1}"));
-    let server2 = {
-        match std::env::var("PORT2") {
-            Ok(port2) => Some(server_redirect(format!("{addr}:{port2}"))),
-            Err(_) => None,
+    for (key,domain) in config.domains.iter() {
+        if let Some(d) = &domain.proxy {
+            domains.insert(key.clone(), DomainConfig { target: d.target.clone() });
         }
-    };
+    }
+
+    let port = std::env::var("PORT").unwrap_or("3000".into());
+    let tls = config.tls.map(|t|tlser::setup_tls(t.cert, t.key));
+    let addr = if tls.is_none() { "127.0.0.1" } else { "[::]" };
+
+    let config = AppState { domains, tls: tls.unwrap() };
+
+    let server1 = server(format!("{addr}:{port}"), config);
+    let server2 = if let Ok(port2) = std::env::var("PORT2") {
+        Some(server_redirect(format!("{addr}:{port2}"))) 
+    } else { None };
 
     let f = tokio::join!(
         server1,
@@ -32,31 +42,22 @@ async fn main() -> Result<(), std::io::Error> {
 
 static SERVICE_UNAVAILABLE: &[u8] = b"Service Unavailable";
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 struct AppState {
-    domains: HashMap<String,DomainConfig>
+    domains: HashMap<String,DomainConfig>,
+    tls: TlsAcceptorType
 }
 
-impl Default for AppState {
-    fn default() -> Self {
-        let mut map = HashMap::new();
-        map.insert("deuzo.me".into(), DomainConfig { target: "localhost:8000".into() });
-        map.insert("api.deuzo.me".into(), DomainConfig { target: "localhost:5000".into() });
-        Self {
-            domains: map
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 struct DomainConfig {
     target: String,
 }
 
-async fn server<T: ToSocketAddrs>(addr: T) -> Result<(), std::io::Error> {
+async fn server<T: ToSocketAddrs>(addr: T, og_config: AppState) -> Result<(), std::io::Error> {
     let tcp = TcpListener::bind(addr).await?;
 
-    let config = Arc::new(RwLock::new(AppState::default()));    
+    let tls_acceptor = og_config.tls.clone();
+    let config = Arc::new(RwLock::new(og_config));    
 
     signal_handler(config.clone());
 
@@ -66,6 +67,8 @@ async fn server<T: ToSocketAddrs>(addr: T) -> Result<(), std::io::Error> {
             s = tcp.accept() => s?
         };
 
+        let stream = tls_acceptor.clone().accept(stream).await?;
+
         let io = hyper_util::rt::TokioIo::new(stream);
         let config = Arc::clone(&config);
         let server = hyper::server::conn::http1::Builder::new()
@@ -74,7 +77,8 @@ async fn server<T: ToSocketAddrs>(addr: T) -> Result<(), std::io::Error> {
                     async move {
                         dummy_handle(req, config).await
                     }
-                }));
+                }))
+                .with_upgrades();
 
         tokio::spawn(async move {
             if let Err(err) = server.await {
@@ -96,7 +100,7 @@ async fn server_redirect<T: ToSocketAddrs>(addr: T) -> Result<(), std::io::Error
         let io = hyper_util::rt::TokioIo::new(stream);
         let server = hyper::server::conn::http1::Builder::new()
                 .keep_alive(false)
-                .serve_connection(io, service_fn(redirect)) ;
+                .serve_connection(io, service_fn(redirect));
 
         tokio::spawn(async move {
             if let Err(err) = server.await {

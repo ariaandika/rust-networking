@@ -9,8 +9,6 @@ use crate::tls::TlsConfig;
 #[derive(Debug,Deserialize)]
 pub struct DomainConfig {
     pub proxy: Option<ProxyConfig>,
-    pub serve: Option<ServeConfig>,
-    pub tls: Option<TlsConfig>
 }
 
 
