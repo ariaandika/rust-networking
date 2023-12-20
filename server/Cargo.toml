@@ -10,4 +10,4 @@ http = "1.0.0"
 http-body-util = "0.1.0"
 hyper = { version = "1.1.0", features = ["server", "client", "http1", "http2"] }
 hyper-util = { version = "0.1.1", features = ["tokio"] }
-tokio = { version = "1.35.1", features = ["net", "macros", "rt-multi-thread"] }
+tokio = { version = "1.35.1", features = ["net", "macros", "rt-multi-thread","signal"] }
