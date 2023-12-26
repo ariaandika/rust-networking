@@ -191,7 +191,15 @@ async fn dummy_handle(mut req: Request<Incoming>, config: Arc<RwLock<AppState>>)
             eprintln!("Failed to connect to proxy: {:?}", err);
         }
     });
-    *req.version_mut() = http::Version::HTTP_11;
+
+    let (mut a,b) = req.into_parts();
+
+    a.version = http::Version::HTTP_11;
+
+    println!("{:#?}", a);
+
+    let req = Request::from_parts(a, b);
+
     let res = sender
         .send_request(req)
         .await
