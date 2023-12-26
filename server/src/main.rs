@@ -151,7 +151,7 @@ async fn redirect(_: Request<Incoming>) -> Result<Response<String>, std::io::Err
     Ok(res)
 }
 
-async fn dummy_handle(req: Request<Incoming>, config: Arc<RwLock<AppState>>) -> Result<Response<BoxBody<Bytes, hyper::Error>>, std::io::Error> {
+async fn dummy_handle(mut req: Request<Incoming>, config: Arc<RwLock<AppState>>) -> Result<Response<BoxBody<Bytes, hyper::Error>>, std::io::Error> {
 
     let host = match req.headers().get("host") {
         Some(host) => match host.to_str() {
@@ -191,7 +191,7 @@ async fn dummy_handle(req: Request<Incoming>, config: Arc<RwLock<AppState>>) -> 
             eprintln!("Failed to connect to proxy: {:?}", err);
         }
     });
-
+    *req.version_mut() = http::Version::HTTP_11;
     let res = sender
         .send_request(req)
         .await
